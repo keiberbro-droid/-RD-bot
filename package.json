@@ -1,0 +1,11 @@
+{
+  "name": "rd-bot",
+  "version": "1.0.0",
+  "description": "Mi primer bot en Node.js",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "author": "tu-nombre",
+  "license": "MIT"
+}
