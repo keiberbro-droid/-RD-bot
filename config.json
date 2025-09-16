@@ -1,4 +1,5 @@
 {
   "owner_id": "YOUR_WHATSAPP_ID_HERE",
-  "bot_enabled": true
+  "bot_enabled": true,
+  "timezone": "America/New_York"
 }

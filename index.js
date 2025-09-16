@@ -1,6 +1,7 @@
 const axios = require('axios');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
+const cron = require('node-cron');
 const { Client, MessageMedia } = require('whatsapp-web.js');
 const client = new Client();
 
@@ -49,12 +50,31 @@ client.on('qr', qr => {
 
 client.on('ready', () => {
     console.log('Client is ready!');
+
+    const config = readConfig();
+    // Schedule the daily greeting message
+    cron.schedule('0 6 * * *', () => {
+        console.log('Running daily greeting job...');
+        const db = readDatabase();
+        if (db.greeting_chats && db.greeting_chats.length > 0) {
+            db.greeting_chats.forEach(chatId => {
+                client.sendMessage(chatId, '☀️ buenos días mis pequeños saltamontes ☀️').catch(err => {
+                    console.error(`Failed to send greeting to ${chatId}:`, err);
+                });
+            });
+        }
+    }, {
+        scheduled: true,
+        timezone: config.timezone || "America/New_York"
+    });
 });
 
 client.on('message', async message => {
+    const senderId = message.author || message.from;
+
     // --- Bot State Handling ---
     const config = readConfig();
-    if (!config.bot_enabled && !isOwner(message.author)) {
+    if (!config.bot_enabled && !isOwner(senderId)) {
         return; // Ignore all messages if bot is disabled, except from the owner
     }
 
@@ -63,25 +83,24 @@ client.on('message', async message => {
 
     // --- Antilink Logic ---
     if (chat.isGroup && db.chats[chat.id._serialized] && db.chats[chat.id._serialized].antilink_enabled) {
-        const participant = chat.participants.find(p => p.id._serialized === message.author);
+        const participant = chat.participants.find(p => p.id._serialized === senderId);
         // Check if the sender is not an admin and not the owner
-        if (participant && !participant.isAdmin && !isOwner(message.author)) {
+        if (participant && !participant.isAdmin && !isOwner(senderId)) {
             const linkRegex = new RegExp("([a-zA-Z0-9]+://)?([a-zA-Z0-9_]+:[a-zA-Z0-9_]+@)?([a-zA-Z0-9.-]+\\.[A-Za-z]{2,4})(:[0-9]+)?(/.*)?");
             if (linkRegex.test(message.body)) {
                 await message.delete(true);
 
-                const authorId = message.author;
                 const chatSettings = db.chats[chat.id._serialized];
 
                 if (!chatSettings.warnings) {
                     chatSettings.warnings = {};
                 }
-                if (!chatSettings.warnings[authorId]) {
-                    chatSettings.warnings[authorId] = 0;
+                if (!chatSettings.warnings[senderId]) {
+                    chatSettings.warnings[senderId] = 0;
                 }
 
-                chatSettings.warnings[authorId]++;
-                const warningCount = chatSettings.warnings[authorId];
+                chatSettings.warnings[senderId]++;
+                const warningCount = chatSettings.warnings[senderId];
 
                 if (warningCount < 3) {
                     const warningMessage = `⚠️ Advertencia ${warningCount}/3. No se permiten enlaces.`;
@@ -89,8 +108,8 @@ client.on('message', async message => {
                 } else {
                     const contact = await message.getContact();
                     await chat.sendMessage(`🚫 @${contact.id.user} ha sido expulsado por acumular 3 advertencias.`, { mentions: [contact] });
-                    await chat.removeParticipants([authorId]);
-                    chatSettings.warnings[authorId] = 0; // Reset warnings
+                    await chat.removeParticipants([senderId]);
+                    chatSettings.warnings[senderId] = 0; // Reset warnings
                 }
 
                 writeDatabase(db);
@@ -102,8 +121,55 @@ client.on('message', async message => {
         const [command, ...args] = message.body.substring(1).split(' ');
 
         switch(command) {
+            case 'addgreeting':
+                {
+                    const chat = await message.getChat();
+                    if (chat.isGroup) {
+                        const participant = chat.participants.find(p => p.id._serialized === senderId);
+                        if ((participant && participant.isAdmin) || isOwner(senderId)) {
+                            const db = readDatabase();
+                            if (!db.greeting_chats) {
+                                db.greeting_chats = [];
+                            }
+                            if (!db.greeting_chats.includes(chat.id._serialized)) {
+                                db.greeting_chats.push(chat.id._serialized);
+                                writeDatabase(db);
+                                message.reply('✅ Este grupo ha sido añadido a la lista de saludos matutinos.');
+                            } else {
+                                message.reply('Este grupo ya está en la lista de saludos.');
+                            }
+                        } else {
+                            message.reply('❌ Este comando solo puede ser usado por administradores del grupo.');
+                        }
+                    } else {
+                        message.reply('❌ Este comando solo funciona en grupos.');
+                    }
+                }
+                break;
+            case 'removegreeting':
+                {
+                    const chat = await message.getChat();
+                    if (chat.isGroup) {
+                        const participant = chat.participants.find(p => p.id._serialized === senderId);
+                        if ((participant && participant.isAdmin) || isOwner(senderId)) {
+                            const db = readDatabase();
+                            if (db.greeting_chats && db.greeting_chats.includes(chat.id._serialized)) {
+                                db.greeting_chats = db.greeting_chats.filter(id => id !== chat.id._serialized);
+                                writeDatabase(db);
+                                message.reply('✅ Este grupo ha sido eliminado de la lista de saludos matutinos.');
+                            } else {
+                                message.reply('Este grupo no estaba en la lista de saludos.');
+                            }
+                        } else {
+                            message.reply('❌ Este comando solo puede ser usado por administradores del grupo.');
+                        }
+                    } else {
+                        message.reply('❌ Este comando solo funciona en grupos.');
+                    }
+                }
+                break;
             case 'shutdown':
-                if (isOwner(message.author)) {
+                if (isOwner(senderId)) {
                     let config = readConfig();
                     config.bot_enabled = false;
                     writeConfig(config);
@@ -114,7 +180,7 @@ client.on('message', async message => {
                 break;
             case 'activate':
             case 'actívate':
-                if (isOwner(message.author)) {
+                if (isOwner(senderId)) {
                     let config = readConfig();
                     config.bot_enabled = true;
                     writeConfig(config);
@@ -124,7 +190,7 @@ client.on('message', async message => {
                 }
                 break;
             case 'myid':
-                message.reply(`Tu ID de WhatsApp es: ${message.author}\n\nCopia este ID y pégalo en el archivo 'config.json' en el campo "owner_id".`);
+                message.reply(`Tu ID de WhatsApp es: ${senderId}\n\nCopia este ID y pégalo en el archivo 'config.json' en el campo "owner_id".`);
                 break;
             case 'sticker':
                 try {
