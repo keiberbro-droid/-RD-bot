@@ -1,5 +1,6 @@
 const qrcode = require('qrcode-terminal');
-const { Client } = require('whatsapp-web.js');
+const axios = require('axios');
+const { Client, MessageMedia } = require('whatsapp-web.js');
 const client = new Client();
 
 client.on('qr', qr => {
@@ -10,12 +11,93 @@ client.on('ready', () => {
     console.log('Client is ready!');
 });
 
-client.on('message', message => {
+client.on('message', async message => {
     if (message.body.startsWith('.')) {
         const [command, ...args] = message.body.substring(1).split(' ');
 
         switch (command) {
-            // Gacha Anime
+            // Fun Commands
+            case 'sticker':
+                try {
+                    const quotedMsg = await message.getQuotedMessage();
+                    if (quotedMsg && quotedMsg.hasMedia) {
+                        const media = await quotedMsg.downloadMedia();
+                        await client.sendMessage(message.from, media, { sendMediaAsSticker: true, stickerAuthor: "RD-Bot" });
+                    } else {
+                        message.reply('Responde a una imagen o GIF con .sticker para convertirlo.');
+                    }
+                } catch (error) {
+                    console.error(error);
+                    message.reply('Ocurrió un error al crear el sticker.');
+                }
+                break;
+            case 'meme':
+                try {
+                    const response = await axios.get('https://api.imgflip.com/get_memes');
+                    const memes = response.data.data.memes;
+                    const randomMeme = memes[Math.floor(Math.random() * memes.length)];
+                    const media = await MessageMedia.fromUrl(randomMeme.url);
+                    await client.sendMessage(message.from, media, { caption: randomMeme.name });
+                } catch (error) {
+                    console.error(error);
+                    message.reply('Ocurrió un error al obtener un meme.');
+                }
+                break;
+            case 'winfo':
+                if (args.length === 0) {
+                    message.reply('Por favor, proporciona el nombre de un personaje. Ejemplo: .winfo Naruto');
+                    break;
+                }
+                try {
+                    const characterName = args.join(' ');
+                    const response = await axios.get(`https://api.jikan.moe/v4/characters?q=${characterName}&sfw`);
+                    const character = response.data.data[0];
+
+                    if (character) {
+                        let about = character.about || 'No hay descripción disponible.';
+                        if (about.length > 250) {
+                            about = about.substring(0, 250) + '...';
+                        }
+                        const info = `*Nombre:* ${character.name}\n` +
+                                     `*Apodos:* ${character.nicknames.join(', ') || 'N/A'}\n` +
+                                     `*Favoritos:* ${character.favorites}\n\n` +
+                                     `*Descripción:*\n${about}\n\n` +
+                                     `*Más información:* ${character.url}`;
+                        const media = await MessageMedia.fromUrl(character.images.jpg.image_url);
+                        await client.sendMessage(message.from, media, { caption: info });
+                    } else {
+                        message.reply(`No se encontró ningún personaje con el nombre "${characterName}".`);
+                    }
+                } catch (error) {
+                    console.error(error);
+                    message.reply('Ocurrió un error al buscar el personaje.');
+                }
+                break;
+            case 'harem-anime':
+                 if (args.length === 0) {
+                    message.reply('Por favor, proporciona al menos un término de búsqueda. Ejemplo: `.harem-anime neko "long hair"`');
+                    break;
+                }
+                try {
+                    const tags = args.slice(0, 4).join(',');
+                    const apiUrl = `https://api.nekosapi.com/v4/images/random?limit=1&rating=safe&tags=${encodeURIComponent(tags)}`;
+                    const response = await axios.get(apiUrl);
+                    const image = response.data.items[0];
+
+                    if (image) {
+                        const media = await MessageMedia.fromUrl(image.image_url);
+                        const caption = `*Rating:* ${image.rating}\n*Tags:* ${image.tags.map(t => t.name).join(', ')}`;
+                        await client.sendMessage(message.from, media, { caption: caption });
+                    } else {
+                        message.reply(`No se encontraron imágenes con los tags: ${args.join(', ')}`);
+                    }
+                } catch (error) {
+                    console.error(error);
+                    message.reply('Ocurrió un error al buscar la imagen.');
+                }
+                break;
+
+            // Gacha Anime (Placeholders)
             case 'c':
                 message.reply('Comando .c ejecutado.');
                 break;
@@ -31,14 +113,11 @@ client.on('message', message => {
             case 'topwaifus':
                 message.reply('Comando .topwaifus ejecutado.');
                 break;
-            case 'winfo':
-                message.reply('Comando .winfo ejecutado.');
-                break;
             case 'wvideo':
                 message.reply('Comando .wvideo ejecutado.');
                 break;
 
-            // Juegos
+            // Juegos (Placeholders)
             case 'acertijo':
                 message.reply('Comando .acertijo ejecutado.');
                 break;
