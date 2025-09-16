@@ -233,6 +233,20 @@ client.on('message', async message => {
                     } else { message.reply(`No se encontró ningún personaje con el nombre "${characterName}".`); }
                 } catch (e) { console.error(e); message.reply('Ocurrió un error al buscar el personaje.'); }
                 break;
+            case 'play':
+                if (args.length === 0) {
+                    message.reply('Por favor, proporciona el enlace directo a un archivo de audio. Ejemplo: `.play https://example.com/audio.mp3`');
+                    break;
+                }
+                try {
+                    const url = args[0];
+                    const media = await MessageMedia.fromUrl(url);
+                    await client.sendMessage(message.from, media, { sendAudioAsVoice: true });
+                } catch (e) {
+                    console.error(e);
+                    message.reply('No se pudo enviar el audio. Asegúrate de que el enlace sea un enlace directo a un archivo de audio válido (ej. .mp3).');
+                }
+                break;
             case 'harem-anime':
                  if (args.length === 0) { message.reply('Por favor, proporciona al menos un término de búsqueda. Ejemplo: `.harem-anime neko "long hair"`'); break; }
                 try {
