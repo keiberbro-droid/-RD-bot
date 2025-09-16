@@ -20,6 +20,27 @@ const readDatabase = () => {
 const writeDatabase = (data) => {
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
 };
+
+const CONFIG_FILE = './config.json';
+
+const readConfig = () => {
+    try {
+        const data = fs.readFileSync(CONFIG_FILE, 'utf-8');
+        return JSON.parse(data);
+    } catch (error) {
+        console.error("Error reading config file! Make sure config.json exists.", error);
+        return { owner_id: null, bot_enabled: false };
+    }
+};
+
+const writeConfig = (data) => {
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(data, null, 2));
+};
+
+const isOwner = (authorId) => {
+    const config = readConfig();
+    return authorId === config.owner_id;
+};
 // ---------------------------------
 
 client.on('qr', qr => {
@@ -31,14 +52,20 @@ client.on('ready', () => {
 });
 
 client.on('message', async message => {
+    // --- Bot State Handling ---
+    const config = readConfig();
+    if (!config.bot_enabled && !isOwner(message.author)) {
+        return; // Ignore all messages if bot is disabled, except from the owner
+    }
+
     const chat = await message.getChat();
     const db = readDatabase();
 
     // --- Antilink Logic ---
     if (chat.isGroup && db.chats[chat.id._serialized] && db.chats[chat.id._serialized].antilink_enabled) {
         const participant = chat.participants.find(p => p.id._serialized === message.author);
-        // Check if the sender is not an admin
-        if (participant && !participant.isAdmin) {
+        // Check if the sender is not an admin and not the owner
+        if (participant && !participant.isAdmin && !isOwner(message.author)) {
             const linkRegex = new RegExp("([a-zA-Z0-9]+://)?([a-zA-Z0-9_]+:[a-zA-Z0-9_]+@)?([a-zA-Z0-9.-]+\\.[A-Za-z]{2,4})(:[0-9]+)?(/.*)?");
             if (linkRegex.test(message.body)) {
                 await message.delete(true);
@@ -75,6 +102,30 @@ client.on('message', async message => {
         const [command, ...args] = message.body.substring(1).split(' ');
 
         switch(command) {
+            case 'shutdown':
+                if (isOwner(message.author)) {
+                    let config = readConfig();
+                    config.bot_enabled = false;
+                    writeConfig(config);
+                    message.reply('🤖 El bot ha sido desactivado.');
+                } else {
+                    message.reply('❌ No tienes permiso para usar este comando.');
+                }
+                break;
+            case 'activate':
+            case 'actívate':
+                if (isOwner(message.author)) {
+                    let config = readConfig();
+                    config.bot_enabled = true;
+                    writeConfig(config);
+                    message.reply('🤖 El bot ha sido activado.');
+                } else {
+                    message.reply('❌ No tienes permiso para usar este comando.');
+                }
+                break;
+            case 'myid':
+                message.reply(`Tu ID de WhatsApp es: ${message.author}\n\nCopia este ID y pégalo en el archivo 'config.json' en el campo "owner_id".`);
+                break;
             case 'sticker':
                 try {
                     const quotedMsg = await message.getQuotedMessage();
