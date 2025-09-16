@@ -108,10 +108,48 @@ client.on('message', async message => {
         }
     }
 
+    // --- Owner Mention Logic ---
+    if (message.mentionedIds.includes(config.owner_id) && !isOwner(senderId)) {
+        message.reply('estás etiquetando a mi dueño el no hablo con gente loca');
+    }
+
     if (message.body.startsWith('.')) {
         const [command, ...args] = message.body.substring(1).split(' ');
 
         switch (command) {
+            case 'menu':
+                const baseMenu = `🤖 *Menú de Comandos de RD-Bot* 🤖
+
+*Diversión*
+- \`.sticker\`: Crea un sticker de una imagen/GIF.
+- \`.meme\`: Envía un meme al azar.
+- \`.winfo <personaje>\`: Busca info de un personaje de anime.
+- \`.harem-anime <tag>\`: Busca una imagen de anime SFW.
+
+*Juegos*
+- \`.acertijo\`
+- \`.matematicas\`
+- \`.ppt\`
+- \`.trivia\`
+
+*Grupos*
+- \`.on antilink\`: Activa el sistema antilink (admins).
+- \`.off antilink\`: Desactiva el sistema antilink (admins).
+- \`.addgreeting\`: Añade este grupo a los saludos diarios (admins).
+- \`.removegreeting\`: Quita este grupo de los saludos diarios (admins).`;
+
+                const ownerMenu = `\n\n👑 *Comandos de Propietario* 👑
+- \`.myid\`: Muestra tu ID de WhatsApp.
+- \`.shutdown\`: Apaga el bot para todos.
+- \`.activate\` / \`.actívate\`: Reactiva el bot.`;
+
+                if (isOwner(senderId)) {
+                    message.reply(baseMenu + ownerMenu);
+                } else {
+                    message.reply(baseMenu);
+                }
+                break;
+
             // --- Owner Commands ---
             case 'myid':
                 message.reply(`Tu ID de WhatsApp es: ${senderId}\n\nCopia este ID y pégalo en el archivo 'config.json' en el campo "owner_id".`);
