@@ -1,17 +1,15 @@
 {
   "name": "rd-bot",
   "version": "1.0.0",
-  "description": "Mi primer bot en Node.js",
+  "description": "Un bot de WhatsApp multifuncional.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
-  "author": "tu-nombre",
+  "author": "Jules",
   "license": "MIT",
   "dependencies": {
-    "axios": "^0.21.1",
-    "node-cron": "^3.0.0",
-    "qrcode-terminal": "^0.12.0",
-    "whatsapp-web.js": "^1.15.3"
+    "whatsapp-web.js": "^1.23.0",
+    "qrcode-terminal": "^0.12.0"
   }
 }
