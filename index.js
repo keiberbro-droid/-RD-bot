@@ -1,7 +1,26 @@
 const axios = require('axios');
 const qrcode = require('qrcode-terminal');
+const fs = require('fs');
 const { Client, MessageMedia } = require('whatsapp-web.js');
 const client = new Client();
+
+// --- Database Helper Functions ---
+const DB_FILE = './database.json';
+
+const readDatabase = () => {
+    try {
+        const data = fs.readFileSync(DB_FILE, 'utf-8');
+        return JSON.parse(data);
+    } catch (error) {
+        console.log("Database not found, creating a new one.");
+        return { chats: {} };
+    }
+};
+
+const writeDatabase = (data) => {
+    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+};
+// ---------------------------------
 
 client.on('qr', qr => {
     qrcode.generate(qr, {small: true});
@@ -12,6 +31,46 @@ client.on('ready', () => {
 });
 
 client.on('message', async message => {
+    const chat = await message.getChat();
+    const db = readDatabase();
+
+    // --- Antilink Logic ---
+    if (chat.isGroup && db.chats[chat.id._serialized] && db.chats[chat.id._serialized].antilink_enabled) {
+        const participant = chat.participants.find(p => p.id._serialized === message.author);
+        // Check if the sender is not an admin
+        if (participant && !participant.isAdmin) {
+            const linkRegex = new RegExp("([a-zA-Z0-9]+://)?([a-zA-Z0-9_]+:[a-zA-Z0-9_]+@)?([a-zA-Z0-9.-]+\\.[A-Za-z]{2,4})(:[0-9]+)?(/.*)?");
+            if (linkRegex.test(message.body)) {
+                await message.delete(true);
+
+                const authorId = message.author;
+                const chatSettings = db.chats[chat.id._serialized];
+
+                if (!chatSettings.warnings) {
+                    chatSettings.warnings = {};
+                }
+                if (!chatSettings.warnings[authorId]) {
+                    chatSettings.warnings[authorId] = 0;
+                }
+
+                chatSettings.warnings[authorId]++;
+                const warningCount = chatSettings.warnings[authorId];
+
+                if (warningCount < 3) {
+                    const warningMessage = `⚠️ Advertencia ${warningCount}/3. No se permiten enlaces.`;
+                    await chat.sendMessage(warningMessage);
+                } else {
+                    const contact = await message.getContact();
+                    await chat.sendMessage(`🚫 @${contact.id.user} ha sido expulsado por acumular 3 advertencias.`, { mentions: [contact] });
+                    await chat.removeParticipants([authorId]);
+                    chatSettings.warnings[authorId] = 0; // Reset warnings
+                }
+
+                writeDatabase(db);
+            }
+        }
+    }
+
 	if(message.body.startsWith('.')) {
         const [command, ...args] = message.body.substring(1).split(' ');
 
@@ -110,17 +169,53 @@ client.on('message', async message => {
                 break;
             // Grupos
             case 'on':
-                if (args.length > 0) {
+                if (args[0] === 'antilink') {
+                    const chat = await message.getChat();
+                    if (chat.isGroup) {
+                        const participant = chat.participants.find(p => p.id._serialized === message.author);
+                        if (participant && participant.isAdmin) {
+                            const db = readDatabase();
+                            if (!db.chats[chat.id._serialized]) {
+                                db.chats[chat.id._serialized] = { warnings: {} };
+                            }
+                            db.chats[chat.id._serialized].antilink_enabled = true;
+                            writeDatabase(db);
+                            message.reply('✅ El sistema Antilink ha sido activado.');
+                        } else {
+                            message.reply('❌ Este comando solo puede ser usado por administradores del grupo.');
+                        }
+                    } else {
+                        message.reply('❌ Este comando solo funciona en grupos.');
+                    }
+                } else if (args.length > 0) {
                     message.reply(`Comando .on ${args[0]} ejecutado.`);
                 } else {
                     message.reply('El comando .on necesita un argumento.');
                 }
                 break;
             case 'off':
-                if (args.length > 0) {
-                    message.reply(`Comando .off ${args[0]} ejecutado.`);
+                if (args[0] === 'antilink') {
+                    const chat = await message.getChat();
+                    if (chat.isGroup) {
+                        const participant = chat.participants.find(p => p.id._serialized === message.author);
+                        if (participant && participant.isAdmin) {
+                            const db = readDatabase();
+                            if (db.chats[chat.id._serialized]) {
+                                db.chats[chat.id._serialized].antilink_enabled = false;
+                                writeDatabase(db);
+                                message.reply('✅ El sistema Antilink ha sido desactivado.');
+                            } else {
+                                message.reply('El sistema Antilink ya estaba desactivado.');
+                            }
+                        } else {
+                            message.reply('❌ Este comando solo puede ser usado por administradores del grupo.');
+                        }
+                    } else {
+                        message.reply('❌ Este comando solo funciona en grupos.');
+                    }
                 } else {
-                    message.reply('El comando .off necesita un argumento.');
+                    // Keep placeholder for other .off commands if any
+                    message.reply('Comando .off no reconocido. ¿Quizás querías decir ".off antilink"?');
                 }
                 break;
             case 'detect':
