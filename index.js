@@ -4,6 +4,7 @@ const fs = require('fs');
 const { Client, MessageMedia } = require('whatsapp-web.js');
 
 // --- Helper Functions ---
+const CONFIG_FILE = './config.json';
 const DB_FILE = './database.json';
 
 const readDatabase = () => {
@@ -19,6 +20,25 @@ const readDatabase = () => {
 const writeDatabase = (data) => {
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
 };
+
+const readConfig = () => {
+    try {
+        const data = fs.readFileSync(CONFIG_FILE, 'utf-8');
+        return JSON.parse(data);
+    } catch (error) {
+        console.error("Error reading config file! Make sure config.json exists.", error);
+        return { owner_id: null, bot_enabled: false };
+    }
+};
+
+const writeConfig = (data) => {
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(data, null, 2));
+};
+
+const isOwner = (authorId) => {
+    const config = readConfig();
+    return authorId === config.owner_id;
+};
 // ---------------------------------
 
 const client = new Client();
@@ -32,41 +52,44 @@ client.on('ready', () => {
 });
 
 client.on('message', async message => {
+    const senderId = message.author || message.from;
+
+    // --- Bot State Handling ---
+    const config = readConfig();
+    if (!config.bot_enabled && !isOwner(senderId)) {
+        return; // Ignore all messages if bot is disabled, except from the owner
+    }
+
     const chat = await message.getChat();
     const db = readDatabase();
-    const senderId = message.author || message.from;
 
     // --- Antilink Logic ---
     if (chat.isGroup && db.chats[chat.id._serialized] && db.chats[chat.id._serialized].antilink_enabled) {
-        // This logic is still potentially buggy and needs a real fix.
-        // For now, proceeding with the assumption that chat.participants is available.
-        const participant = chat.participants.find(p => p.id._serialized === senderId);
-        if (participant && !participant.isAdmin) {
-            const linkRegex = new RegExp("([a-zA-Z0-9]+://)?([a-zA-Z0-9_]+:[a-zA-Z0-9_]+@)?([a-zA-Z0-9.-]+\\.[A-Za-z]{2,4})(:[0-9]+)?(/.*)?");
-            if (linkRegex.test(message.body)) {
-                await message.delete(true);
+        if (!isOwner(senderId)) { // Owner is immune to antilink
+            const participant = chat.participants.find(p => p.id._serialized === senderId);
+            if (participant && !participant.isAdmin) {
+                const linkRegex = new RegExp("([a-zA-Z0-9]+://)?([a-zA-Z0-9_]+:[a-zA-Z0-9_]+@)?([a-zA-Z0-9.-]+\\.[A-Za-z]{2,4})(:[0-9]+)?(/.*)?");
+                if (linkRegex.test(message.body)) {
+                    await message.delete(true);
 
-                const chatSettings = db.chats[chat.id._serialized];
-                if (!chatSettings.warnings) {
-                    chatSettings.warnings = {};
-                }
-                if (!chatSettings.warnings[senderId]) {
-                    chatSettings.warnings[senderId] = 0;
-                }
+                    const chatSettings = db.chats[chat.id._serialized];
+                    if (!chatSettings.warnings) { chatSettings.warnings = {}; }
+                    if (!chatSettings.warnings[senderId]) { chatSettings.warnings[senderId] = 0; }
 
-                chatSettings.warnings[senderId]++;
-                const warningCount = chatSettings.warnings[senderId];
+                    chatSettings.warnings[senderId]++;
+                    const warningCount = chatSettings.warnings[senderId];
 
-                if (warningCount < 3) {
-                    const contact = await message.getContact();
-                    await chat.sendMessage(`⚠️ Advertencia ${warningCount}/3 para @${contact.id.user}. No se permiten enlaces.`, { mentions: [contact] });
-                } else {
-                    const contact = await message.getContact();
-                    await chat.sendMessage(`🚫 @${contact.id.user} ha sido expulsado por acumular 3 advertencias.`, { mentions: [contact] });
-                    await chat.removeParticipants([senderId]);
-                    chatSettings.warnings[senderId] = 0; // Reset warnings
+                    if (warningCount < 3) {
+                        const contact = await message.getContact();
+                        await chat.sendMessage(`⚠️ Advertencia ${warningCount}/3 para @${contact.id.user}. No se permiten enlaces.`, { mentions: [contact] });
+                    } else {
+                        const contact = await message.getContact();
+                        await chat.sendMessage(`🚫 @${contact.id.user} ha sido expulsado por acumular 3 advertencias.`, { mentions: [contact] });
+                        await chat.removeParticipants([senderId]);
+                        chatSettings.warnings[senderId] = 0;
+                    }
+                    writeDatabase(db);
                 }
-                writeDatabase(db);
             }
         }
     }
@@ -75,6 +98,32 @@ client.on('message', async message => {
         const [command, ...args] = message.body.substring(1).split(' ');
 
         switch (command) {
+            // --- Owner Commands ---
+            case 'myid':
+                message.reply(`Tu ID de WhatsApp es: ${senderId}\n\nCopia este ID y pégalo en el archivo 'config.json' en el campo "owner_id".`);
+                break;
+            case 'shutdown':
+                if (isOwner(senderId)) {
+                    let config = readConfig();
+                    config.bot_enabled = false;
+                    writeConfig(config);
+                    message.reply('🤖 El bot ha sido desactivado.');
+                } else {
+                    message.reply('❌ No tienes permiso para usar este comando.');
+                }
+                break;
+            case 'activate':
+            case 'actívate':
+                if (isOwner(senderId)) {
+                    let config = readConfig();
+                    config.bot_enabled = true;
+                    writeConfig(config);
+                    message.reply('🤖 El bot ha sido activado.');
+                } else {
+                    message.reply('❌ No tienes permiso para usar este comando.');
+                }
+                break;
+
             // --- Fun Commands ---
             case 'sticker':
                 try {
